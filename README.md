@@ -1,0 +1,95 @@
+# astrbot_plugin_cmd_guard · 指令守卫
+
+> 本插件完全由 **DeepSeek-v4-flash** 开发。
+
+一个适用于 **OneBot v11（aiocqhttp）** 与 **QQ 官方机器人（qq_official / qq_official_webhook）** 的 AstrBot 插件：
+
+- 🛑 拦截**以唤醒词开头、但未被注册或被禁用**的指令，阻止它们继续触发 LLM 回复（避免模型假装执行了不存在的指令、浪费 token）；
+- 🛑 **指令消息一律禁止 AstrBot 默认的 LLM 兜底**——指令执行报错、回复发送失败（如语音解码失败）、或指令没有产出回复时，原消息都不会再被提交给 LLM（节约 token）；
+- ✅ 支持**指令级白名单与黑名单**。
+
+## 安装
+
+1. 将本插件目录（`astrbot_plugin_cmd_guard`）放入 AstrBot 的 `data/plugins/` 目录；
+2. 在 AstrBot WebUI「插件管理」中启用该插件（或点击重载）；
+3. 在插件配置页按需修改配置。
+
+> 兼容性：推荐 AstrBot **v4.x**（在 v4.27.4 上验证）；v3.4.28+ 亦可运行，旧版本会降级为只保留指令黑白名单与报错抑制功能。
+
+## 工作方式
+
+AstrBot 只有在“被唤醒”时（消息以唤醒词开头 / @机器人 / 私聊）才会触发指令匹配与 LLM 回复。
+本插件监听所有消息，在**唤醒事件**上做以下判断（默认行为）：
+
+| 场景 | 行为 |
+| --- | --- |
+| 消息命中**已启用**指令（如 `/help`） | ✅ 放行交给指令处理，同时**禁止默认 LLM 兜底**（指令报错/回复发送失败/无回复时不再请求 LLM） |
+| 消息命中**已注册但被禁用**指令 | 🛑 拦截，回复「指令 {cmd} 已被禁用。」 |
+| 消息以指令前缀开头（默认 `/`）但**未注册**（如 `/foobar`） | 🛑 拦截，回复「未知指令：{cmd}。发送 /help 查看可用指令。」 |
+| 命中**指令黑名单**（`blacklist_commands`） | 🛑 始终拦截（优先于已注册启用），回复「指令 {cmd} 已被禁止。」 |
+| 命中**指令白名单**（`whitelist_commands`） | ✅ 完全放行，不做任何拦截 |
+| 普通聊天（如 `小星 你好呀`、私聊、@机器人聊天） | ✅ 放行，正常走 LLM 聊天 |
+| 插件指令**执行报错** | 🛑 阻止 LLM 兜底回复（默认保留 `:(` 错误回显，可配置屏蔽） |
+
+拦截使用 `should_call_llm(True)`（禁止默认 LLM 请求）+ `stop_event()`（停止事件传播）双保险。
+
+## 配置项（WebUI 可视化配置）
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enable` | bool | `true` | 总开关 |
+| `enabled_platforms` | list | `["aiocqhttp","qq_official","qq_official_webhook"]` | 生效平台，清空=全部 |
+| `command_prefixes` | list | `["/"]` | 指令前缀，以此开头的首词视为指令调用 |
+| `block_unknown_commands` | bool | `true` | 拦截带前缀但未注册的指令 |
+| `block_disabled_commands` | bool | `true` | 拦截已注册但被禁用的指令 |
+| `block_bare_commands` | bool | `false` | 也拦截无前缀、形如英文字母指令名的首词（**开启后聊天中的英文单词可能被误拦**） |
+| `extra_command_tokens` | list | `[]` | 额外强制视为指令的词语（无前缀也拦截） |
+| `whitelist_commands` | list | `[]` | **指令白名单**：完全放行（用于注册表外 / 正则监听器处理的指令） |
+| `blacklist_commands` | list | `[]` | **指令黑名单**：始终拦截，即使已注册启用 |
+| `unknown_reply` | string | `未知指令：{cmd}。发送 /help 查看可用指令。` | 未知指令回复模板（`{cmd}` 为指令名），留空=静默 |
+| `disabled_reply` | string | `指令 {cmd} 已被禁用。` | 被禁用指令回复模板，留空=静默 |
+| `blacklist_reply` | string | `指令 {cmd} 已被禁止。` | 黑名单指令回复模板，留空=静默 |
+| `block_llm_after_error` | bool | `true` | 插件报错后阻止 LLM 兜底回复 |
+| `silence_error_reply` | bool | `false` | 同时屏蔽默认的 `:( 出现异常` 错误回显 |
+| `pass_when_other_handlers` | bool | `false` | 除本插件外还有其它插件的 handler 被激活（如正则监听器）时放行 |
+
+配置项的描述已尽量精简，详细说明见每一项的灰色小字（`hint`）。
+
+## 指令白名单 / 黑名单说明
+
+- 列表项支持三种写法：裸指令名（`活字印刷`）、带斜杠（`/活字印刷`）、完整调用（`math add`）；
+- **黑名单优先**：命中黑名单的指令即使已注册启用也会被拦截；
+- **白名单优先于一切拦截**：白名单指令不拦截、也不禁止 LLM 兜底（完整放行）；
+- 用于注册表之外的指令（如其它插件的正则监听器处理的 `/xxx`）请加入白名单，避免被当成未知指令拦截。
+
+## 常见问题
+
+**Q：为什么 `小星 你好` 没有被拦截，而 `小星 /foo` 被拦截了？**
+A：默认只有**带指令前缀**（`/`）或**命中已知但被禁用的指令名**的消息才会被判定为“指令调用”。`小星 你好` 是普通聊天，正常交给 LLM。若希望无前缀的英文单词也算指令，开启 `block_bare_commands` 或把该词加入 `extra_command_tokens`。
+
+**Q：指令执行报错 / 回复发送失败后，为什么不再请求 LLM 了？**
+A：这是本插件的目的。AstrBot 在指令没有成功发出回复时（`_has_send_oper` 为 False）会把原消息兜底交给 LLM，浪费 token。本插件对所有指令消息设置 `should_call_llm(True)`（禁止默认 LLM 请求），从源头掐断这条兜底链路；插件 handler 自身通过 `request_llm()` 发起的 LLM 请求不受影响。
+
+**Q：WebUI 里禁用/启用了某个指令，多久生效？**
+A：本插件缓存指令注册表约 5 秒，之后自动生效。
+
+**Q：和其它插件冲突怎么办？**
+A：若其它插件通过正则监听器处理 `/xxx` 这类消息，可把该指令加入 `whitelist_commands`，或开启 `pass_when_other_handlers` 放行。
+
+## 原理简述
+
+AstrBot 的消息管线中，指令过滤器（`CommandFilter`）只在“唤醒事件”（`is_at_or_wake_command`）上匹配；未匹配到任何已启用指令的唤醒消息会被交给 LLM。本插件注册了一个**高优先级消息监听器**：
+
+1. 判断是否唤醒事件；
+2. 从 AstrBot 的 handler 注册表（`star_handlers_registry`）构建「已启用指令名 / 已禁用指令名」集合（含别名、指令组、重命名、WebUI 禁用状态、停用插件、`disable_builtin_commands`）；
+3. 命中已启用指令 → `should_call_llm(True)` 后放行；命中已禁用指令 / 带前缀未注册指令 → 拦截；
+4. 拦截时 `should_call_llm(True)` + `stop_event()`，可选回复提示。
+
+同时注册 `on_plugin_error` 事件钩子：任何插件 handler 报错后调用 `should_call_llm(True)`，
+阻止 AstrBot 把该消息继续交给 LLM 兜底回复；`silence_error_reply` 开启时再 `stop_event()` 屏蔽默认错误回显。
+
+> 注意：`AstrMessageEvent.call_llm = True` 表示**禁止**默认 LLM 请求（命名有历史包袱，语义以源码注释为准）。
+
+## License
+
+MIT
