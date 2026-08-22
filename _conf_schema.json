@@ -1,0 +1,98 @@
+{
+  "enable": {
+    "description": "总开关",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后本插件不执行任何拦截。"
+  },
+  "enabled_platforms": {
+    "description": "生效平台",
+    "type": "list",
+    "default": [
+      "aiocqhttp",
+      "qq_official",
+      "qq_official_webhook"
+    ],
+    "hint": "适配器名：aiocqhttp / qq_official / qq_official_webhook 等。清空表示所有平台。"
+  },
+  "command_prefixes": {
+    "description": "指令前缀",
+    "type": "list",
+    "default": [
+      "/"
+    ],
+    "hint": "以这些字符开头的首个词视为指令调用。默认 / ，即 /foo 会被当作指令 foo。"
+  },
+  "block_unknown_commands": {
+    "description": "拦截未知指令",
+    "type": "bool",
+    "default": true,
+    "hint": "拦截“带指令前缀但未注册”的指令，阻止其触发 LLM 回复。"
+  },
+  "block_disabled_commands": {
+    "description": "拦截被禁用指令",
+    "type": "bool",
+    "default": true,
+    "hint": "拦截“已注册但在 WebUI 指令管理中被禁用”的指令。"
+  },
+  "block_bare_commands": {
+    "description": "拦截无前缀英文指令",
+    "type": "bool",
+    "default": false,
+    "hint": "把无前缀、形如英文字母指令名的首词当指令拦截（如：唤醒词 help）。注意：开启后聊天中的英文单词可能被误拦。"
+  },
+  "extra_command_tokens": {
+    "description": "额外视为指令的词语",
+    "type": "list",
+    "default": [],
+    "hint": "无前缀时也拦截，如 [\"help\", \"菜单\"]。"
+  },
+  "whitelist_commands": {
+    "description": "指令白名单",
+    "type": "list",
+    "default": [],
+    "hint": "这些指令完全放行、不拦截（用于注册表外/正则监听器处理的指令）。支持 指令名 或 /指令名。"
+  },
+  "blacklist_commands": {
+    "description": "指令黑名单",
+    "type": "list",
+    "default": [],
+    "hint": "这些指令始终拦截，即使已注册启用。支持 指令名 或 /指令名。"
+  },
+  "unknown_reply": {
+    "description": "未知指令回复",
+    "type": "string",
+    "default": "未知指令：{cmd}。发送 /help 查看可用指令。",
+    "hint": "支持 {cmd} 占位符。留空则不回复（静默拦截）。"
+  },
+  "disabled_reply": {
+    "description": "被禁用指令回复",
+    "type": "string",
+    "default": "指令 {cmd} 已被禁用。",
+    "hint": "支持 {cmd} 占位符。留空则不回复。"
+  },
+  "blacklist_reply": {
+    "description": "黑名单指令回复",
+    "type": "string",
+    "default": "指令 {cmd} 已被禁止。",
+    "hint": "命中指令黑名单时的回复，支持 {cmd} 占位符。留空则静默。"
+  },
+  "block_llm_after_error": {
+    "description": "报错后阻止 LLM 兜底",
+    "type": "bool",
+    "default": true,
+    "hint": "插件指令执行报错后，阻止 AstrBot 把消息继续交给 LLM 回复。"
+  },
+  "silence_error_reply": {
+    "description": "屏蔽报错回显",
+    "type": "bool",
+    "default": false,
+    "hint": "插件报错时同时屏蔽默认的 “:( 出现异常” 错误回显（需开启上一项）。"
+  },
+  "pass_when_other_handlers": {
+    "description": "其它插件激活时放行",
+    "type": "bool",
+    "default": false,
+    "hint": "当除本插件外还有其他插件的 handler 被激活（如正则监听器）时放行，不做拦截。"
+  }
+}
