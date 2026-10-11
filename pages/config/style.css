@@ -1,0 +1,345 @@
+/* 指令守卫 · 分机器人配置页面样式（跟随 AstrBot 主题的亮/暗色） */
+
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --card-border: #e3e6eb;
+  --text: #1f2329;
+  --text-dim: #6b7280;
+  --accent: #4f6ef7;
+  --accent-soft: rgba(79, 110, 247, 0.12);
+  --chip-bg: rgba(0, 0, 0, 0.06);
+  --chip-text: #4b5563;
+  --overridden: #2f9e63;
+  --overridden-bg: rgba(47, 158, 99, 0.13);
+  --input-bg: #ffffff;
+  --input-border: #cdd3dc;
+  --danger: #d0593b;
+}
+
+html[data-theme="dark"] {
+  --bg: #141518;
+  --card: #1e2024;
+  --card-border: #2c2f35;
+  --text: #e8eaed;
+  --text-dim: #9aa1ab;
+  --accent: #7b93ff;
+  --accent-soft: rgba(123, 147, 255, 0.16);
+  --chip-bg: rgba(255, 255, 255, 0.08);
+  --chip-text: #b6bcc6;
+  --overridden: #58d39a;
+  --overridden-bg: rgba(88, 211, 154, 0.15);
+  --input-bg: #262a30;
+  --input-border: #3a3f47;
+  --danger: #ef8367;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 18px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.wrap {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.page-head {
+  margin-bottom: 16px;
+}
+
+.page-head h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.page-head .sub {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.row-text .row-name {
+  font-weight: 500;
+}
+
+.row-text .row-desc {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.row-control {
+  flex: 0 0 auto;
+  min-width: 260px;
+}
+
+.select,
+.input,
+.textarea {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+}
+
+.textarea {
+  min-height: 62px;
+  resize: vertical;
+}
+
+.select:focus,
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.meta-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--card-border);
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.chip {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chip.on {
+  background: var(--overridden-bg);
+  color: var(--overridden);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+}
+
+.field {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--card-border);
+}
+
+.field:first-child {
+  border-top: none;
+}
+
+.field-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.field-hint {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.field-global {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+.field-control {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.field-control .reset-link {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.field-control .reset-link[disabled] {
+  color: var(--text-dim);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch input {
+  display: none;
+}
+
+.switch .track {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--input-border);
+  position: relative;
+  transition: background 0.16s ease;
+}
+
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.16s ease;
+}
+
+.switch input:checked + .track {
+  background: var(--accent);
+}
+
+.switch input:checked + .track::after {
+  transform: translateX(20px);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.btn {
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--accent);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.global-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.global-item {
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.global-item b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.hint {
+  margin: 12px 0 0;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  font-size: 13.5px;
+  z-index: 20;
+}
+
+.toast.error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
