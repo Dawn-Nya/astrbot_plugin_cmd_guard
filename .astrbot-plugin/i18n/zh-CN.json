@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "display_name": "指令守卫 Command Guard"
+  },
+  "pages": {
+    "config": {
+      "title": "分机器人配置"
+    }
+  }
+}
