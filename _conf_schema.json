@@ -3,7 +3,7 @@
     "description": "总开关",
     "type": "bool",
     "default": true,
-    "hint": "关闭后本插件不执行任何拦截。"
+    "hint": "关闭后本插件不执行任何拦截。此处所有配置都是全局默认值，可在插件页面「分机器人配置」中为每个机器人单独覆盖。"
   },
   "enabled_platforms": {
     "description": "生效平台",
@@ -13,7 +13,7 @@
       "qq_official",
       "qq_official_webhook"
     ],
-    "hint": "适配器名：aiocqhttp / qq_official / qq_official_webhook 等。清空表示所有平台。"
+    "hint": "适配器名：aiocqhttp / qq_official / qq_official_webhook 等。清空表示所有平台。该平台类型总开关仅支持全局配置。"
   },
   "command_prefixes": {
     "description": "指令前缀",
