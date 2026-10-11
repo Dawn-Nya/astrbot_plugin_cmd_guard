@@ -1,0 +1,10 @@
+{
+  "metadata": {
+    "display_name": "Command Guard"
+  },
+  "pages": {
+    "config": {
+      "title": "Per-bot configuration"
+    }
+  }
+}
