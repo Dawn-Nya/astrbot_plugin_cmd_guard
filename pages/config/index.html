@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>指令守卫 · 分机器人配置</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="page-head">
+        <h1>分机器人配置</h1>
+        <p class="sub">
+          让不同的机器人使用不同的配置。没有单独设置的配置项，都会继承下方的全局配置。
+        </p>
+      </header>
+
+      <section class="card">
+        <div class="card-title">机器人</div>
+        <div class="row">
+          <div class="row-text">
+            <div class="row-name">选择要配置的机器人</div>
+            <div class="row-desc">每个平台适配器实例（一个机器人）可以使用独立的配置。</div>
+          </div>
+          <div class="row-control">
+            <select id="bot-select" class="select" aria-label="选择机器人"></select>
+          </div>
+        </div>
+        <div id="bot-meta" class="meta-row" hidden></div>
+      </section>
+
+      <section class="card" id="config-card" hidden>
+        <div class="card-title">
+          <span>该机器人的配置</span>
+          <span id="override-count" class="chip"></span>
+        </div>
+        <div id="fields" class="fields"></div>
+        <div class="actions">
+          <button id="save" class="btn primary" type="button">保存</button>
+          <button id="reset" class="btn" type="button">全部恢复继承全局</button>
+          <button id="reload" class="btn ghost" type="button">刷新</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">全局配置（所有机器人的默认值）</div>
+        <div id="global-list" class="global-list"></div>
+        <p class="hint">
+          全局配置请在本插件的「插件配置」页修改，这里仅作展示。
+        </p>
+      </section>
+
+      <div id="toast" class="toast" hidden></div>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>
