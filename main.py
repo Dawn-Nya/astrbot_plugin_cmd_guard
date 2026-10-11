@@ -4,10 +4,12 @@
 1. 拦截“以唤醒词开头、但未被注册或被禁用”的指令，阻止其继续触发 LLM 回复；
 2. 指令消息（含已注册指令）一律禁止 AstrBot 默认的 LLM 兜底——指令报错、
    回复发送失败、或指令没有产出回复时，都不会再把原消息交给 LLM（节约 token）；
-3. 支持指令级白名单（完全放行）与黑名单（始终拦截）。
+3. 支持指令级白名单（完全放行）与黑名单（始终拦截）；
+4. 支持分机器人配置：全局配置作为默认值，每个机器人（平台适配器实例）可单独
+   覆盖任意配置项，通过插件页面可视化设置（类似 AstrBot「会话配置」的操作方式）。
 
 适用平台：OneBot v11（aiocqhttp）与 QQ 官方机器人（qq_official / qq_official_webhook），
-可通过配置 ``enabled_platforms`` 调整。
+可通过全局配置 ``enabled_platforms`` 调整。
 
 本插件完全由 DeepSeek-v4-flash 开发。
 """
@@ -40,6 +42,21 @@ except Exception:  # pragma: no cover - 旧版本 AstrBot 兼容
     _CoreEventType = None
     _handlers_registry = None
 
+# 插件页面（Web API）支持；旧版本 AstrBot 无该模块时仅失去可视化配置页面
+try:
+    from astrbot.api.web import (  # type: ignore
+        error_response as _error_response,
+        json_response as _json_response,
+        request as _web_request,
+    )
+
+    _HAS_WEB = True
+except Exception:  # pragma: no cover - 旧版本 AstrBot 兼容
+    _error_response = None
+    _json_response = None
+    _web_request = None
+    _HAS_WEB = False
+
 # AstrBot 内置指令（/help、/sid 等）所在的模块路径
 _BUILTIN_CMD_MODULE = "astrbot.builtin_stars.builtin_commands.main"
 # “看起来像指令”的无前缀英文单词（用于 block_bare_commands 模式）
@@ -47,12 +64,107 @@ _BARE_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]{0,31}$")
 # 指令注册表缓存的刷新间隔（秒）
 _COMMAND_CACHE_TTL = 5.0
 
+# 分机器人配置在插件 KV 存储中的键名
+_KV_BOT_OVERRIDES = "bot_overrides"
+# Web API 路由前缀（页面通过 apiGet('bots') 等相对路径访问）
+_API_PREFIX = "/astrbot_plugin_cmd_guard"
+
+# 可被「单个机器人」覆盖的配置项（enabled_platforms 属于平台类型总开关，不在此列）
+# type: bool | string | text(多行) | list ；label/hint 供插件页面渲染
+_BOT_FIELDS: list[dict] = [
+    {
+        "key": "enable",
+        "label": "总开关",
+        "type": "bool",
+        "hint": "关闭后该机器人不执行任何拦截（仍保留其它机器人的设置）。",
+    },
+    {
+        "key": "command_prefixes",
+        "label": "指令前缀",
+        "type": "list",
+        "hint": "以这些字符开头的首个词会被视为指令调用，默认「/」。",
+    },
+    {
+        "key": "block_unknown_commands",
+        "label": "拦截未知指令",
+        "type": "bool",
+        "hint": "拦截「带指令前缀但未注册」的指令，阻止其触发 LLM 回复。",
+    },
+    {
+        "key": "block_disabled_commands",
+        "label": "拦截被禁用指令",
+        "type": "bool",
+        "hint": "拦截「已注册但在 WebUI 指令管理中被禁用」的指令。",
+    },
+    {
+        "key": "block_bare_commands",
+        "label": "拦截无前缀英文指令",
+        "type": "bool",
+        "hint": "把无前缀、形如英文字母指令名的首词当指令拦截。开启后聊天中的英文单词可能被误拦。",
+    },
+    {
+        "key": "extra_command_tokens",
+        "label": "额外视为指令的词语",
+        "type": "list",
+        "hint": "无前缀时也拦截，如 help、菜单。",
+    },
+    {
+        "key": "whitelist_commands",
+        "label": "指令白名单",
+        "type": "list",
+        "hint": "这些指令完全放行、不拦截（用于注册表外或正则监听器处理的指令）。",
+    },
+    {
+        "key": "blacklist_commands",
+        "label": "指令黑名单",
+        "type": "list",
+        "hint": "这些指令始终拦截，即使已注册启用。",
+    },
+    {
+        "key": "unknown_reply",
+        "label": "未知指令回复",
+        "type": "string",
+        "hint": "支持 {cmd} 占位符；留空则静默拦截。",
+    },
+    {
+        "key": "disabled_reply",
+        "label": "被禁用指令回复",
+        "type": "string",
+        "hint": "支持 {cmd} 占位符；留空则静默拦截。",
+    },
+    {
+        "key": "blacklist_reply",
+        "label": "黑名单指令回复",
+        "type": "string",
+        "hint": "支持 {cmd} 占位符；留空则静默拦截。",
+    },
+    {
+        "key": "block_llm_after_error",
+        "label": "报错后阻止 LLM 兜底",
+        "type": "bool",
+        "hint": "插件指令执行报错后，阻止把消息继续交给 LLM 回复。",
+    },
+    {
+        "key": "silence_error_reply",
+        "label": "屏蔽报错回显",
+        "type": "bool",
+        "hint": "报错时同时屏蔽默认的「:( 出现异常」回显（需开启上一项）。",
+    },
+    {
+        "key": "pass_when_other_handlers",
+        "label": "其它插件激活时放行",
+        "type": "bool",
+        "hint": "除本插件外还有其它插件的 handler 被激活（如正则监听器）时放行。",
+    },
+]
+_BOT_FIELD_TYPES: dict[str, str] = {item["key"]: item["type"] for item in _BOT_FIELDS}
+
 
 @register(
     "astrbot_plugin_cmd_guard",
     "Dawn_Nya",
-    "拦截未知/被禁用的指令并阻止其触发 LLM 回复；支持指令白名单与黑名单。",
-    "1.1.0",
+    "拦截未知/被禁用的指令并阻止其触发 LLM 回复；支持指令白名单/黑名单与分机器人配置。",
+    "1.2.0",
 )
 class CommandGuardPlugin(Star):
     """指令守卫插件。"""
@@ -66,29 +178,246 @@ class CommandGuardPlugin(Star):
         self._scan_warned = False
         # 指令注册表是否可用；不可用时降级为只保留指令黑白名单与报错抑制（fail-open）
         self._registry_ok = _handlers_registry is not None and _CoreEventType is not None
+        # 分机器人配置：{platform_id: {配置项: 覆盖值}}，缺失的项继承全局配置
+        self._bot_overrides: dict[str, dict] = {}
+        self._kv_ready = True
 
     # ------------------------------------------------------------------
-    # 配置辅助
+    # 生命周期
     # ------------------------------------------------------------------
 
-    def _cfg(self, key: str, default=None):
-        """读取插件配置，缺失时返回默认值。"""
-        return self.config.get(key, default)
+    async def initialize(self):
+        """插件激活时：注册配置页面接口并载入分机器人配置。"""
+        self._register_web_apis()
+        await self._load_bot_overrides()
 
-    def _platform_enabled(self, event: AstrMessageEvent) -> bool:
-        """当前平台是否在本插件的生效范围内。"""
-        platforms = self._cfg("enabled_platforms", None)
+    async def terminate(self):
+        """插件卸载 / 停用时的清理（暂无）。"""
+
+    # ------------------------------------------------------------------
+    # 分机器人配置：存储与解析
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sanitize_overrides(raw) -> dict:
+        """过滤并规范化某个机器人的覆盖配置，只保留合法键与合法类型。"""
+        result: dict = {}
+        if not isinstance(raw, dict):
+            return result
+        for key, value in raw.items():
+            field_type = _BOT_FIELD_TYPES.get(str(key))
+            if field_type is None:
+                continue
+            if field_type == "bool":
+                result[key] = bool(value)
+            elif field_type == "list":
+                if isinstance(value, str):
+                    value = re.split(r"[\n,，、]", value)
+                if isinstance(value, list):
+                    result[key] = [str(v).strip() for v in value if str(v).strip()]
+            else:
+                result[key] = str(value)
+        return result
+
+    async def _load_bot_overrides(self) -> None:
+        """从插件 KV 存储载入分机器人配置。"""
+        try:
+            data = await self.get_kv_data(_KV_BOT_OVERRIDES, {})
+        except Exception as e:
+            self._kv_ready = False
+            logger.warning(
+                f"cmd_guard: 读取分机器人配置失败（本次运行内仅能临时生效）: {e}"
+            )
+            return
+        if isinstance(data, dict):
+            self._bot_overrides = {
+                str(key): self._sanitize_overrides(value)
+                for key, value in data.items()
+                if isinstance(value, dict)
+            }
+            if self._bot_overrides:
+                logger.info(
+                    f"cmd_guard: 已载入 {len(self._bot_overrides)} 个机器人的独立配置。"
+                )
+
+    async def _persist_bot_overrides(self) -> None:
+        """把分机器人配置写回插件 KV 存储。"""
+        if not self._kv_ready:
+            return
+        try:
+            await self.put_kv_data(_KV_BOT_OVERRIDES, self._bot_overrides)
+        except Exception as e:
+            self._kv_ready = False
+            logger.error(
+                f"cmd_guard: 保存分机器人配置失败，重启后将丢失本次修改: {e}"
+            )
+
+    @staticmethod
+    def _bot_key(event: AstrMessageEvent) -> str:
+        """机器人（平台适配器实例）的唯一标识。"""
+        try:
+            return str(event.get_platform_id() or "") or str(
+                event.get_platform_name() or ""
+            )
+        except Exception:
+            return ""
+
+    def _resolve_conf(self, event: AstrMessageEvent) -> dict:
+        """解析该消息所属机器人的有效配置：全局配置 + 该机器人的覆盖项。"""
+        key = self._bot_key(event)
+        override = self._bot_overrides.get(key) if key else None
+        if not override:
+            return self.config
+        merged = dict(self.config)
+        merged.update(override)
+        return merged
+
+    def _global_platforms(self) -> list[str]:
+        """全局配置中声明生效的平台类型列表。"""
+        value = self.config.get("enabled_platforms", None)
+        if isinstance(value, list):
+            return [str(item) for item in value if str(item)]
+        return []
+
+    def _platform_enabled(self, event: AstrMessageEvent, conf: dict) -> bool:
+        """当前平台是否在本插件（且针对该机器人）的生效范围内。"""
+        platforms = conf.get("enabled_platforms", None)
         if not platforms:
             return True
         return event.get_platform_name() in platforms
 
-    def _forbid_llm(self, event: AstrMessageEvent) -> None:
-        """禁止 AstrBot 默认的 LLM 兜底请求。
+    def _list_bots(self) -> list[dict]:
+        """列出所有机器人（平台适配器实例），附带是否已有独立配置。"""
+        bots: list[dict] = []
+        seen: set[str] = set()
+        gate = self._global_platforms()
+        platform_insts = []
+        try:
+            platform_insts = self.context.platform_manager.get_insts()
+        except Exception as e:
+            logger.warning(f"cmd_guard: 获取平台适配器列表失败: {e}")
+        for platform in platform_insts:
+            try:
+                meta = platform.meta()
+            except Exception:
+                continue
+            platform_id = str(getattr(meta, "id", "") or "")
+            if not platform_id or platform_id in seen:
+                continue
+            seen.add(platform_id)
+            name = str(getattr(meta, "name", "") or "")
+            display = str(getattr(meta, "adapter_display_name", "") or "") or name
+            bots.append(
+                {
+                    "id": platform_id,
+                    "name": name,
+                    "display_name": display,
+                    "description": str(getattr(meta, "description", "") or ""),
+                    "supported": (not gate) or name in gate,
+                    "has_override": platform_id in self._bot_overrides,
+                    "offline": False,
+                }
+            )
+        # 已保存过配置、但当前不在线的机器人也列出来，便于清理
+        for platform_id in self._bot_overrides:
+            if platform_id in seen:
+                continue
+            bots.append(
+                {
+                    "id": platform_id,
+                    "name": "",
+                    "display_name": platform_id,
+                    "description": "当前不在线的机器人（保留其配置）",
+                    "supported": True,
+                    "has_override": True,
+                    "offline": True,
+                }
+            )
+        return bots
 
-        注意：AstrBot 中 ``event.call_llm = True`` 表示“禁止默认 LLM 请求”，
-        ``False`` 表示允许（ProcessStage 中 ``not event.call_llm`` 才放行）。
+    # ------------------------------------------------------------------
+    # 插件页面（Web API）
+    # ------------------------------------------------------------------
+
+    def _register_web_apis(self) -> None:
+        """注册插件页面所需的 Web API（旧版本 AstrBot 无此能力时静默跳过）。"""
+        if not _HAS_WEB:
+            return
+        try:
+            self.context.register_web_api(
+                f"{_API_PREFIX}/bots",
+                self.api_list_bots,
+                ["GET"],
+                "列出机器人及其独立配置",
+            )
+            self.context.register_web_api(
+                f"{_API_PREFIX}/bots/save",
+                self.api_save_bot,
+                ["POST"],
+                "保存某个机器人的独立配置",
+            )
+        except Exception as e:
+            logger.warning(
+                f"cmd_guard: 注册插件页面接口失败，分机器人配置页面将不可用: {e}"
+            )
+
+    async def api_list_bots(self):
+        """GET /astrbot_plugin_cmd_guard/bots —— 机器人列表 + 全局配置 + 覆盖情况。"""
+        global_config = {
+            key: self.config.get(key) for key in _BOT_FIELD_TYPES
+        }
+        return _json_response(
+            {
+                "status": "ok",
+                "data": {
+                    "bots": self._list_bots(),
+                    "fields": _BOT_FIELDS,
+                    "global": global_config,
+                    "overrides": self._bot_overrides,
+                    "platforms": self._global_platforms(),
+                    "kv_ready": self._kv_ready,
+                },
+            }
+        )
+
+    async def api_save_bot(self):
+        """POST /astrbot_plugin_cmd_guard/bots/save —— 保存 / 清除某个机器人的配置。
+
+        请求体：``{"platform_id": "...", "overrides": {...}}``
+        ``overrides`` 为空字典时表示清除该机器人的独立配置（恢复为继承全局）。
         """
-        event.should_call_llm(True)
+        try:
+            payload = await _web_request.json(default={}) or {}
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            return _error_response("请求体格式不正确")
+        platform_id = str(payload.get("platform_id") or "").strip()
+        if not platform_id:
+            return _error_response("缺少 platform_id")
+        if len(platform_id) > 200:
+            return _error_response("platform_id 过长")
+
+        overrides = self._sanitize_overrides(payload.get("overrides"))
+        if overrides:
+            self._bot_overrides[platform_id] = overrides
+        else:
+            self._bot_overrides.pop(platform_id, None)
+        await self._persist_bot_overrides()
+        logger.info(
+            f"cmd_guard: 已更新机器人 {platform_id} 的独立配置"
+            f"（{len(overrides)} 项{'，已恢复继承全局' if not overrides else ''}）。"
+        )
+        return _json_response(
+            {
+                "status": "ok",
+                "data": {
+                    "overrides": self._bot_overrides,
+                    "bots": self._list_bots(),
+                    "kv_ready": self._kv_ready,
+                },
+            }
+        )
 
     # ------------------------------------------------------------------
     # 指令注册表（哪些指令已注册、是否被禁用）
@@ -252,6 +581,14 @@ class CommandGuardPlugin(Star):
             return event.plain_result(text)
         return None
 
+    def _forbid_llm(self, event: AstrMessageEvent) -> None:
+        """禁止 AstrBot 默认的 LLM 兜底请求。
+
+        注意：AstrBot 中 ``event.call_llm = True`` 表示“禁止默认 LLM 请求”，
+        ``False`` 表示允许（ProcessStage 中 ``not event.call_llm`` 才放行）。
+        """
+        event.should_call_llm(True)
+
     # ------------------------------------------------------------------
     # 消息监听：拦截未知 / 被禁用的指令
     # ------------------------------------------------------------------
@@ -259,10 +596,12 @@ class CommandGuardPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL, priority=100)
     async def on_message(self, event: AstrMessageEvent):
         """监听所有消息，拦截“以唤醒词开头、但未注册或被禁用”的指令。"""
-        if not self._cfg("enable", True):
+        conf = self._resolve_conf(event)
+
+        if not conf.get("enable", True):
             return
 
-        if not self._platform_enabled(event):
+        if not self._platform_enabled(event, conf):
             return
         # 仅在被唤醒（@ 机器人 / 唤醒词 / 私聊）时拦截，与 AstrBot 触发 LLM 的条件一致
         if not event.is_at_or_wake_command:
@@ -280,7 +619,7 @@ class CommandGuardPlugin(Star):
         msg_first = msg.split(" ", 1)[0]
 
         # 可选：若其它插件（如正则监听器）也激活了 handler，则放行
-        if self._cfg("pass_when_other_handlers", False):
+        if conf.get("pass_when_other_handlers", False):
             mine = self.__class__.__module__
             others = [
                 h
@@ -290,7 +629,7 @@ class CommandGuardPlugin(Star):
             if others:
                 return
 
-        prefixes = [p for p in (self._cfg("command_prefixes", ["/"]) or []) if p]
+        prefixes = [p for p in (conf.get("command_prefixes", ["/"]) or []) if p]
         # 消息是否以指令前缀开头（原始文本或剥离唤醒词后的文本）
         prefixed = any(orig_first.startswith(p) for p in prefixes) or any(
             msg_first.startswith(p) for p in prefixes
@@ -301,11 +640,11 @@ class CommandGuardPlugin(Star):
         texts = [msg, original]
 
         # 0) 指令黑名单：始终拦截（优先于一切，包括已注册启用的指令）
-        if self._cfg("blacklist_commands", None):
-            if self._cmd_in_list(candidate, texts, self._cfg("blacklist_commands")):
+        if conf.get("blacklist_commands", None):
+            if self._cmd_in_list(candidate, texts, conf.get("blacklist_commands")):
                 result = self._build_block(
                     event,
-                    self._cfg("blacklist_reply", "指令 {cmd} 已被禁止。"),
+                    conf.get("blacklist_reply", "指令 {cmd} 已被禁止。"),
                     candidate or msg_first,
                 )
                 if result is not None:
@@ -314,8 +653,8 @@ class CommandGuardPlugin(Star):
                 return
 
         # 0b) 指令白名单：完全放行，不做任何拦截
-        if self._cfg("whitelist_commands", None):
-            if self._cmd_in_list(candidate, texts, self._cfg("whitelist_commands")):
+        if conf.get("whitelist_commands", None):
+            if self._cmd_in_list(candidate, texts, conf.get("whitelist_commands")):
                 return
 
         # 指令注册表不可用（旧版本 AstrBot）时，无法判断“是否已注册”，
@@ -333,7 +672,7 @@ class CommandGuardPlugin(Star):
 
         # 2) 命中已注册但被禁用的指令：拦截（对去掉前缀后的文本同样匹配，
         #    以覆盖“自定义唤醒词 + /指令名”的写法）
-        if self._cfg("block_disabled_commands", True):
+        if conf.get("block_disabled_commands", True):
             disabled_cmd = self._match_command(msg, self._disabled_names) or (
                 self._match_command(undecorated, self._disabled_names)
                 if undecorated != msg
@@ -342,7 +681,7 @@ class CommandGuardPlugin(Star):
             if disabled_cmd:
                 result = self._build_block(
                     event,
-                    self._cfg("disabled_reply", "指令 {cmd} 已被禁用。"),
+                    conf.get("disabled_reply", "指令 {cmd} 已被禁用。"),
                     disabled_cmd,
                 )
                 if result is not None:
@@ -351,17 +690,17 @@ class CommandGuardPlugin(Star):
                 return
 
         # 3) 未注册指令：仅当“看起来像指令”时拦截
-        if not self._cfg("block_unknown_commands", True):
+        if not conf.get("block_unknown_commands", True):
             return
         if not candidate:
             return
         extra = {
-            str(x) for x in (self._cfg("extra_command_tokens", []) or []) if str(x)
+            str(x) for x in (conf.get("extra_command_tokens", []) or []) if str(x)
         }
         looks_like_command = prefixed
         if (
             not looks_like_command
-            and self._cfg("block_bare_commands", False)
+            and conf.get("block_bare_commands", False)
             and bool(_BARE_TOKEN_RE.match(candidate))
         ):
             looks_like_command = True
@@ -370,7 +709,7 @@ class CommandGuardPlugin(Star):
         if looks_like_command:
             result = self._build_block(
                 event,
-                self._cfg("unknown_reply", "未知指令：{cmd}。发送 /help 查看可用指令。"),
+                conf.get("unknown_reply", "未知指令：{cmd}。发送 /help 查看可用指令。"),
                 candidate,
             )
             if result is not None:
@@ -391,16 +730,14 @@ class CommandGuardPlugin(Star):
         traceback_text: str,
     ):
         """任何插件指令执行报错后，阻止 AstrBot 将消息继续交给 LLM 兜底回复。"""
-        if not self._cfg("block_llm_after_error", True):
+        conf = self._resolve_conf(event)
+        if not conf.get("block_llm_after_error", True):
             return
         self._forbid_llm(event)
-        if self._cfg("silence_error_reply", False):
+        if conf.get("silence_error_reply", False):
             # 屏蔽 AstrBot 默认的 “:( 出现异常” 错误回显
             event.stop_event()
         logger.info(
             f"cmd_guard: 插件 {plugin_name} 的 {handler_name} 报错，"
             "已阻止 LLM 兜底回复。"
         )
-
-    async def terminate(self):
-        """插件卸载 / 停用时的清理（暂无）。"""
